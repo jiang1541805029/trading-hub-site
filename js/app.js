@@ -1,7 +1,6 @@
 ﻿// UNIFIED KEY
     const KEY_V34 = 'tradingJournal_v34';
     const CLOUD_TABLE = 'trade_journal';
-    const EMAIL_KEY = 'tradingJournal_email';
     const LOGIN_URL = 'index.html';
     const REQUIRE_AUTH = true;
 
@@ -107,58 +106,20 @@
 
     function updateAuthUI(user) {
       const logoutBtn = document.getElementById('authLogoutBtn');
-      const sendBtn = document.getElementById('authSendBtn');
-      const emailInput = document.getElementById('authEmail');
-      if (!logoutBtn || !sendBtn || !emailInput) return;
+      if (!logoutBtn) return;
 
       if (user) {
         setAuthStatus(`Signed in: ${user.email || 'user'}`);
         logoutBtn.classList.remove('hidden');
-        sendBtn.disabled = true;
-        emailInput.disabled = true;
-        sendBtn.classList.add('opacity-60', 'cursor-not-allowed');
-        emailInput.classList.add('opacity-60', 'cursor-not-allowed');
       } else {
         setAuthStatus('Not signed in');
         logoutBtn.classList.add('hidden');
-        sendBtn.disabled = false;
-        emailInput.disabled = false;
-        sendBtn.classList.remove('opacity-60', 'cursor-not-allowed');
-        emailInput.classList.remove('opacity-60', 'cursor-not-allowed');
       }
     }
 
     function resetTickerFilter() {
       const sel = document.getElementById('calFilter');
       if (sel) sel.innerHTML = '<option value="ALL">All Tickers</option>';
-    }
-
-    async function sendMagicLink() {
-      if (!supabaseClient) {
-        alert('Supabase client not available.');
-        return;
-      }
-      const emailInput = document.getElementById('authEmail');
-      const email = (emailInput ? emailInput.value : '').trim();
-      if (!email) {
-        alert('Please enter an email.');
-        return;
-      }
-      localStorage.setItem(EMAIL_KEY, email);
-      setAuthStatus('Sending magic link...');
-      const redirectTo = (location.protocol === 'file:') ? null : window.location.href;
-      if (location.protocol === 'file:') {
-        setSyncStatus('Magic link requires http(s). Open this page via a local server.');
-      }
-      const { error } = await supabaseClient.auth.signInWithOtp({
-        email,
-        options: redirectTo ? { emailRedirectTo: redirectTo } : {}
-      });
-      if (error) {
-        setAuthStatus('Error: ' + error.message);
-        return;
-      }
-      setAuthStatus('Magic link sent. Check your email.');
     }
 
     async function signOut() {
@@ -247,11 +208,6 @@
       if (!supabaseClient) {
         setAuthStatus('Cloud disabled');
         return;
-      }
-      const savedEmail = localStorage.getItem(EMAIL_KEY);
-      if (savedEmail) {
-        const input = document.getElementById('authEmail');
-        if (input) input.value = savedEmail;
       }
       const { data } = await supabaseClient.auth.getSession();
       cloudUser = data && data.session ? data.session.user : null;

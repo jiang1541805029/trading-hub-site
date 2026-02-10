@@ -12,39 +12,71 @@ function setStatus(msg) {
   if (el) el.innerText = msg || '';
 }
 
-async function sendMagicLink() {
+function setBusy(isBusy) {
+  const btnIn = document.getElementById('loginSignInBtn');
+  const btnUp = document.getElementById('loginSignUpBtn');
+  if (btnIn) btnIn.disabled = isBusy;
+  if (btnUp) btnUp.disabled = isBusy;
+}
+
+function getCreds() {
+  const emailInput = document.getElementById('loginEmail');
+  const passInput = document.getElementById('loginPassword');
+  const email = (emailInput ? emailInput.value : '').trim();
+  const password = (passInput ? passInput.value : '').trim();
+  return { email, password };
+}
+
+async function signIn() {
   if (!supabaseClient) {
     setStatus('Supabase client not available.');
     return;
   }
-  const emailInput = document.getElementById('loginEmail');
-  const email = (emailInput ? emailInput.value : '').trim();
-  if (!email) {
-    setStatus('Please enter an email.');
+  const { email, password } = getCreds();
+  if (!email || !password) {
+    setStatus('请输入邮箱和密码。');
     return;
   }
   localStorage.setItem(EMAIL_KEY, email);
-  setStatus('Sending magic link...');
-
-  const redirectTo = (location.protocol === 'file:')
-    ? null
-    : new URL(PANEL_URL, window.location.href).href;
-
-  if (location.protocol === 'file:') {
-    setStatus('Magic link requires http(s). Open this page via a local server.');
-  }
-
-  const { error } = await supabaseClient.auth.signInWithOtp({
-    email,
-    options: redirectTo ? { emailRedirectTo: redirectTo } : {}
-  });
-
+  setBusy(true);
+  setStatus('登录中...');
+  const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  setBusy(false);
   if (error) {
-    setStatus('Error: ' + error.message);
+    setStatus('登录失败：' + error.message);
     return;
   }
+  if (data && data.session) {
+    window.location.href = PANEL_URL;
+    return;
+  }
+  setStatus('登录成功。');
+}
 
-  setStatus('Magic link sent. Check your email.');
+async function signUp() {
+  if (!supabaseClient) {
+    setStatus('Supabase client not available.');
+    return;
+  }
+  const { email, password } = getCreds();
+  if (!email || !password) {
+    setStatus('请输入邮箱和密码。');
+    return;
+  }
+  localStorage.setItem(EMAIL_KEY, email);
+  setBusy(true);
+  setStatus('注册中...');
+  const { data, error } = await supabaseClient.auth.signUp({ email, password });
+  setBusy(false);
+  if (error) {
+    setStatus('注册失败：' + error.message);
+    return;
+  }
+  if (data && data.session) {
+    window.location.href = PANEL_URL;
+    return;
+  }
+  setStatus('注册成功。如开启邮箱验证，请查收邮件完成验证。');
 }
 
 async function initLogin() {
@@ -65,8 +97,17 @@ async function initLogin() {
     return;
   }
 
-  const btn = document.getElementById('loginSendBtn');
-  if (btn) btn.addEventListener('click', sendMagicLink);
+  const btnIn = document.getElementById('loginSignInBtn');
+  const btnUp = document.getElementById('loginSignUpBtn');
+  if (btnIn) btnIn.addEventListener('click', signIn);
+  if (btnUp) btnUp.addEventListener('click', signUp);
+
+  const passInput = document.getElementById('loginPassword');
+  if (passInput) {
+    passInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') signIn();
+    });
+  }
 }
 
 document.addEventListener('DOMContentLoaded', initLogin);
