@@ -1,0 +1,182 @@
+﻿body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    ::-webkit-scrollbar {
+      width: 5px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 3px;
+    }
+
+    .dark ::-webkit-scrollbar-thumb {
+      background: #475569;
+    }
+
+    .input-label {
+      display: block;
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: #64748b;
+      margin-bottom: 1px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .dark .input-label {
+      color: #94a3b8;
+    }
+
+    .input-base {
+      width: 100%;
+      height: 35px;
+      background-color: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 5px;
+      padding: 0 0.6rem;
+      font-size: 0.85rem;
+      color: #1e293b;
+      transition: all 0.2s;
+      font-weight: 500;
+    }
+
+    .dark .input-base {
+      background-color: #1e293b;
+      border-color: #334155;
+      color: #e2e8f0;
+    }
+
+    .input-base:focus {
+      outline: none;
+      border-color: #3b82f6;
+      ring: 2px solid rgba(59, 130, 246, 0.3);
+    }
+
+    textarea.input-base {
+      height: auto;
+      min-height: 65px;
+      padding-top: 6px;
+      resize: vertical;
+      line-height: 1.4;
+    }
+
+    .cal-btn {
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+      transition: background 0.2s;
+    }
+
+    .cal-btn:hover {
+      background-color: rgba(0, 0, 0, 0.05);
+    }
+
+    .dark .cal-btn:hover {
+      background-color: rgba(255, 255, 255, 0.1);
+    }
+
+    .cal-cell {
+      aspect-ratio: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.7rem;
+      border-radius: 4px;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all 0.1s;
+      position: relative;
+      overflow: hidden;
+      padding-top: 2px;
+    }
+
+    .cal-cell:hover {
+      transform: scale(1.1);
+      z-index: 10;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+
+    .cal-cell.selected {
+      border-color: #3b82f6;
+      ring: 2px solid rgba(59, 130, 246, 0.3);
+      z-index: 5;
+      background-color: rgba(59, 130, 246, 0.1);
+    }
+
+    .card-hover {
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .card-hover:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 10px 20px -5px rgba(0, 0, 0, 0.1);
+    }
+
+    .editing-active {
+      border: 2px solid #eab308 !important;
+      background-color: rgba(234, 179, 8, 0.05) !important;
+    }
+
+    .tiny-toggle {
+      font-size: 10px;
+      font-weight: 800;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid #e2e8f0;
+    }
+
+    .dark .tiny-toggle {
+      border-color: #334155;
+    }
+
+    .tiny-toggle.active {
+      border-color: #00C805;
+      color: #00C805;
+    }
+
+    .dark .tiny-toggle.active {
+      border-color: #00C805;
+      color: #00C805;
+    }
+
+    .rating-star {
+      font-size: 1.3rem;
+      color: #cbd5e1;
+      cursor: pointer;
+      padding: 0 1px;
+    }
+
+    .dark .rating-star {
+      color: #475569;
+    }
+
+    .rating-input:checked~.rating-star {
+      color: #f59e0b;
+    }
+
+    .rating-star:hover,
+    .rating-star:hover~.rating-star {
+      color: #fbbf24;
+    }
+
+    .rating-input {
+      display: none;
+    }
+
+
+/* Login page */
+.login-shell { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.login-card { width: 100%; max-width: 420px; background: #151e32; border: 1px solid #334155; border-radius: 14px; padding: 24px; box-shadow: 0 20px 40px rgba(0,0,0,0.35); }
+.login-title { font-weight: 900; font-size: 18px; letter-spacing: 0.02em; color: #e2e8f0; }
+.login-sub { font-size: 12px; color: #94a3b8; margin-top: 6px; }
+.login-actions { display: flex; gap: 8px; margin-top: 14px; }
+.login-status { font-size: 11px; color: #94a3b8; margin-top: 10px; }
+.login-link { font-size: 11px; color: #60a5fa; font-weight: 700; }
+

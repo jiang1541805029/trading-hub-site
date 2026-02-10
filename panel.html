@@ -1,0 +1,405 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>交易复盘 v34.0 (终极完美版)</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    tailwind.config = { darkMode: 'class' }
+  </script>
+
+  <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body class="bg-[#f8fafc] text-slate-800 dark:bg-[#0b1120] dark:text-[#cbd5e1] h-screen overflow-hidden flex text-sm">
+
+  <aside
+    class="w-[340px] flex-shrink-0 bg-white dark:bg-[#151e32] border-r border-gray-200 dark:border-slate-700 flex flex-col z-20 shadow-xl overflow-y-auto">
+    <div
+      class="p-4 border-b border-gray-100 dark:border-slate-700 flex justify-between items-center sticky top-0 bg-white dark:bg-[#151e32] z-10">
+      <h1 class="font-black text-sm tracking-tight flex items-center gap-2">
+        TRADING HUB <span class="text-[9px] bg-green-600 text-white px-1.5 py-0.5 rounded">v34.0</span>
+      </h1>
+      <div class="flex gap-2">
+        <button onclick="exportData()" class="text-[10px] text-green-600 font-bold hover:underline">备份</button>
+        <button onclick="document.getElementById('importFile').click()"
+          class="text-[10px] text-yellow-600 font-bold hover:underline">恢复</button>
+        <input type="file" id="importFile" class="hidden" accept=".json" onchange="importData(this)">
+      </div>
+    </div>
+
+    <div class="p-4 border-b border-gray-100 dark:border-slate-700 bg-white/80 dark:bg-[#0f172a]/50">
+      <div class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Cloud Sync</div>
+      <div class="flex gap-2 mt-2">
+        <input id="authEmail" type="email" placeholder="email@example.com" class="input-base text-[11px]">
+        <button id="authSendBtn" onclick="sendMagicLink()"
+          class="h-[35px] px-2 text-[10px] font-bold bg-blue-600 text-white rounded">Send Link</button>
+      </div>
+      <div class="flex items-center justify-between mt-2">
+        <span id="authStatus" class="text-[10px] text-gray-400">Not signed in</span>
+        <button id="authLogoutBtn" onclick="signOut()"
+          class="text-[10px] text-red-500 font-bold hidden">Logout</button>
+      </div>
+      <div id="syncStatus" class="text-[9px] text-gray-400 mt-1"></div>
+    </div>
+
+    <div class="p-4 border-b border-gray-100 dark:border-slate-700 bg-gray-50/50 dark:bg-[#0f172a]/50">
+      <div class="flex justify-between items-end mb-1">
+        <span class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Equity / Win Rate</span>
+        <span id="totalPnL" class="text-xl font-black font-mono transition-colors duration-300">$0.00</span>
+      </div>
+
+      <div class="flex items-center justify-between mb-2">
+        <div class="flex gap-2">
+          <button id="btnShowEquity" class="tiny-toggle" onclick="setChartMode('equity')">Equity</button>
+          <button id="btnShowWR" class="tiny-toggle" onclick="setChartMode('wr')">WinRate</button>
+          <button id="btnShowBoth" class="tiny-toggle active" onclick="setChartMode('both')">Both</button>
+        </div>
+        <div class="flex items-center gap-1">
+          <span class="text-[9px] font-bold text-gray-400 uppercase">目标</span>
+          <select id="targetFilter"
+            class="bg-transparent text-[10px] font-bold text-purple-500 border-none outline-none cursor-pointer text-right"
+            onchange="applyGlobalFilter()">
+            <option value="ALL">全部</option>
+            <option value="2倍盈亏比">2倍盈亏比</option>
+            <option value="1倍盈亏比">1倍盈亏比</option>
+            <option value="剥头皮">剥头皮</option>
+            <option value="其它">其它</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-between mb-2">
+        <div class="flex items-center gap-1">
+          <span class="text-[9px] font-bold text-gray-400 uppercase">Range</span>
+          <input type="date" id="filterStart"
+            class="bg-transparent text-[10px] font-bold text-gray-500 dark:text-gray-300 border border-gray-200 dark:border-slate-700 rounded px-1 py-0.5"
+            onchange="applyGlobalFilter()">
+          <span class="text-[9px] text-gray-400">~</span>
+          <input type="date" id="filterEnd"
+            class="bg-transparent text-[10px] font-bold text-gray-500 dark:text-gray-300 border border-gray-200 dark:border-slate-700 rounded px-1 py-0.5"
+            onchange="applyGlobalFilter()">
+        </div>
+        <button class="text-[9px] text-blue-500 font-bold hover:underline" onclick="clearRangeFilter()">All</button>
+      </div>
+
+      <div class="h-48 w-full relative"><canvas id="equityChart"></canvas></div>
+
+      <div class="grid grid-cols-2 gap-2 mt-4">
+        <div class="bg-white dark:bg-[#1e293b] p-2 rounded border border-gray-200 dark:border-slate-700">
+          <div class="text-[9px] text-gray-400 uppercase">Win Rate</div>
+          <div class="text-base font-black text-blue-500" id="statWR">0%</div>
+        </div>
+        <div class="bg-white dark:bg-[#1e293b] p-2 rounded border border-gray-200 dark:border-slate-700">
+          <div class="text-[9px] text-gray-400 uppercase">Trades</div>
+          <div class="text-base font-black" id="statCount">0</div>
+        </div>
+        <div class="bg-white dark:bg-[#1e293b] p-2 rounded border border-gray-200 dark:border-slate-700">
+          <div class="text-[9px] text-gray-400 uppercase">Avg Win</div>
+          <div class="text-base font-black text-green-500" id="statAvgWin">$0</div>
+        </div>
+        <div class="bg-white dark:bg-[#1e293b] p-2 rounded border border-gray-200 dark:border-slate-700">
+          <div class="text-[9px] text-gray-400 uppercase">Avg Loss</div>
+          <div class="text-base font-black text-red-500" id="statAvgLoss">$0</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="p-4 border-b border-gray-100 dark:border-slate-700">
+      <div class="flex justify-between items-center mb-2">
+        <div class="flex items-center gap-2">
+          <button class="cal-btn text-gray-500 hover:text-blue-500" onclick="changeMonth(-1)">◀</button>
+          <div id="calTitle" class="flex flex-col items-center">
+            <span id="calMonth" class="text-[10px] font-bold text-gray-600 dark:text-gray-300 uppercase">JAN</span>
+            <span id="calMonthPnL" class="text-[9px] font-mono"></span>
+          </div>
+          <button class="cal-btn text-gray-500 hover:text-blue-500" onclick="changeMonth(1)">▶</button>
+        </div>
+        <select id="calFilter"
+          class="bg-transparent text-[10px] font-bold text-blue-500 border-none outline-none cursor-pointer text-right"
+          onchange="applyGlobalFilter()">
+          <option value="ALL">All Tickers</option>
+        </select>
+      </div>
+
+      <div class="grid grid-cols-7 gap-1 text-center text-[9px] text-gray-400 mb-1 font-bold">
+        <div>S</div>
+        <div>M</div>
+        <div>T</div>
+        <div>W</div>
+        <div>T</div>
+        <div>F</div>
+        <div>S</div>
+      </div>
+      <div id="calGrid" class="grid grid-cols-7 gap-1"></div>
+    </div>
+
+    <div class="p-4 pb-8 flex-1">
+      <h3 class="text-[10px] font-bold text-gray-500 uppercase mb-2">Strategy Stats</h3>
+      <div id="stratStats" class="space-y-1"></div>
+    </div>
+
+    <div
+      class="mt-auto p-3 border-t border-gray-200 dark:border-slate-700 text-center sticky bottom-0 bg-white dark:bg-[#151e32]">
+      <button onclick="toggleTheme()"
+        class="text-[10px] font-bold text-gray-400 hover:text-slate-700 dark:hover:text-white">🌓 Theme</button>
+    </div>
+  </aside>
+
+  <section
+    class="w-[420px] flex-shrink-0 bg-white dark:bg-[#1e293b] border-r border-gray-200 dark:border-slate-700 flex flex-col z-10 shadow-xl relative transition-colors duration-300"
+    id="formSection">
+    <div
+      class="h-12 flex items-center px-4 border-b border-gray-100 dark:border-slate-700 justify-between bg-white dark:bg-[#1e293b]">
+      <h2 class="font-bold text-xs text-slate-800 dark:text-white" id="formTitle">✏️ LOG TRADE</h2>
+      <button id="cancelEditBtn" onclick="resetForm()"
+        class="hidden text-[10px] text-red-500 font-bold bg-red-50 dark:bg-red-900/30 px-2 py-0.5 rounded cursor-pointer">
+        取消编辑
+      </button>
+    </div>
+
+    <form id="tradeForm" class="flex-1 overflow-y-auto p-4 space-y-3">
+      <input type="hidden" id="editId">
+
+      <div class="grid grid-cols-2 gap-2.5">
+        <div><label class="input-label">Date</label><input type="date" id="tradeDate" class="input-base cursor-pointer">
+        </div>
+        <div>
+          <label class="input-label">Ticker</label>
+          <input type="text" id="ticker" list="tickList" class="input-base font-bold uppercase" placeholder="ES"
+            required>
+          <datalist id="tickList">
+            <option value="MES">
+            <option value="ES">
+            <option value="M6E">
+            <option value="MNQ">
+            <option value="NQ">
+            <option value="SPY">
+            <option value="QQQ">
+            <option value="BTC">
+            <option value="ETH">
+            <option value="XAUUSD">
+            <option value="CL">
+            <option value="GOOG">
+            <option value="NVDA">
+            <option value="TSLA">
+            <option value="AAPL">
+            <option value="MSFT">
+            <option value="ORCL">
+            <option value="TSM">
+            <option value="META">
+          </datalist>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-2.5">
+        <div>
+          <label class="input-label">Direction</label>
+          <select id="direction" class="input-base font-bold cursor-pointer">
+            <option value="Long" class="text-green-600">🟢 Long (多)</option>
+            <option value="Short" class="text-red-600">🔴 Short (空)</option>
+          </select>
+        </div>
+        <div>
+          <label class="input-label">PA Strategy</label>
+          <select id="strategy" class="input-base text-xs font-medium cursor-pointer">
+            <option value="" disabled selected>选择策略...</option>
+            <optgroup label="Trend">
+              <option value="BP">BP - 突破回调</option>
+              <option value="PB">PB - 趋势回踩</option>
+              <option value="TCT">TCT - 趋势中继</option>
+            </optgroup>
+            <optgroup label="Reversal">
+              <option value="REV">REV - 结构反转</option>
+              <option value="DT/DB">DT/DB - 双顶/底</option>
+              <option value="Wedge">Wedge - 楔形</option>
+              <option value="Climax">Climax - 高潮</option>
+            </optgroup>
+            <optgroup label="Range">
+              <option value="TR">TR - 区间交易</option>
+              <option value="BO">BO - 强力突破</option>
+              <option value="FBO">FBO - 假突破</option>
+            </optgroup>
+          </select>
+        </div>
+      </div>
+
+      <div
+        class="grid grid-cols-2 gap-2 bg-gray-50 dark:bg-slate-800/50 p-2 rounded-md border border-gray-100 dark:border-slate-700">
+        <div>
+          <label class="input-label text-indigo-600 dark:text-indigo-400">盈亏目标</label>
+          <select id="profitTarget" class="input-base font-bold cursor-pointer text-center">
+            <option value="2倍盈亏比">2倍盈亏比</option>
+            <option value="1倍盈亏比">1倍盈亏比</option>
+            <option value="剥头皮">剥头皮</option>
+            <option value="其它">其它</option>
+          </select>
+        </div>
+        <div>
+          <label class="input-label text-amber-600 dark:text-amber-400">手动离场</label>
+          <select id="manualExit" class="input-base font-bold cursor-pointer text-center">
+            <option value="否">否</option>
+            <option value="是">是</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-2.5">
+        <div>
+          <label class="input-label text-indigo-600 dark:text-indigo-400">Realized PnL ($)</label>
+          <input type="number" step="0.01" id="manualPnL" placeholder="0.00"
+            class="input-base font-black text-lg text-indigo-600 dark:text-indigo-400 text-center">
+        </div>
+        <div>
+          <label class="input-label">单子类型</label>
+          <select id="tradeType" class="input-base font-bold cursor-pointer text-center">
+            <option value="系统单">系统单</option>
+            <option value="情绪单">情绪单</option>
+            <option value="随手单">随手单</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="space-y-2.5">
+        <div><label class="input-label">⚡️ Setup Context</label><textarea id="setup" class="input-base"
+            placeholder="大周期、关键位、逻辑..."></textarea></div>
+        <div><label class="input-label">📝 Review</label><textarea id="review" class="input-base"
+            placeholder="执行、心态、改进..."></textarea></div>
+      </div>
+
+      <div><label class="input-label">TV Link</label><input type="text" id="tvLink"
+          placeholder="https://tradingview.com/..." class="input-base text-[10px] text-blue-500 font-mono"></div>
+
+      <div class="flex items-center justify-between pt-1">
+        <div id="pasteArea"
+          class="h-9 px-3 border border-dashed border-gray-300 dark:border-slate-600 rounded flex items-center justify-center cursor-pointer hover:bg-blue-50 dark:hover:bg-slate-800 transition group relative overflow-hidden flex-1 mr-3">
+          <span id="imgMsg" class="text-[10px] text-gray-400 group-hover:text-blue-500 font-bold">📸 粘贴 (Ctrl+V)</span>
+          <input type="file" id="imageFile" accept="image/*" class="hidden">
+        </div>
+
+        <div class="flex items-center gap-1">
+          <span class="text-[10px] font-bold text-gray-400">评分:</span>
+          <div class="flex flex-row-reverse">
+            <input type="radio" id="s5" name="r" value="5" class="rating-input"><label for="s5"
+              class="rating-star">★</label>
+            <input type="radio" id="s4" name="r" value="4" class="rating-input"><label for="s4"
+              class="rating-star">★</label>
+            <input type="radio" id="s3" name="r" value="3" class="rating-input"><label for="s3"
+              class="rating-star">★</label>
+            <input type="radio" id="s2" name="r" value="2" class="rating-input"><label for="s2"
+              class="rating-star">★</label>
+            <input type="radio" id="s1" name="r" value="1" class="rating-input"><label for="s1"
+              class="rating-star">★</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="h-10"></div>
+    </form>
+
+    <div
+      class="absolute bottom-0 w-full p-3 bg-white/95 dark:bg-[#1e293b]/95 backdrop-blur border-t border-gray-100 dark:border-slate-700 z-20">
+      <button id="submitBtn" onclick="document.getElementById('tradeForm').requestSubmit()"
+        class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold h-9 rounded shadow-md transition text-xs tracking-wider uppercase transform hover:scale-[1.01]">Save
+        Trade</button>
+    </div>
+  </section>
+
+  <main class="flex-1 bg-gray-100 dark:bg-[#0b1120] flex flex-col overflow-hidden relative">
+    <div
+      class="h-12 bg-white dark:bg-[#151e32] border-b border-gray-200 dark:border-slate-700 flex justify-between items-center px-5 shadow-sm z-10 shrink-0">
+      <div class="flex items-center gap-3">
+        <h3 class="text-xs font-bold text-gray-500 uppercase">Gallery (<span id="recordCount">0</span>)</h3>
+        <div class="h-3 w-px bg-gray-300 dark:bg-slate-600"></div>
+
+        <input type="date" id="galleryFilterDate" class="hidden" onchange="syncFilter(this.value)">
+        <button onclick="clearDateFilter()"
+          class="text-[10px] text-blue-500 hover:underline font-bold bg-blue-50 dark:bg-blue-900/30 px-2 py-1 rounded">Show
+          All</button>
+        <span id="currentFilterDisplay" class="text-[10px] font-bold text-gray-400"></span>
+      </div>
+      <button onclick="clearAllData()" class="text-[10px] text-red-400 hover:text-red-500">Reset</button>
+    </div>
+
+    <div id="galleryContainer" class="flex-1 overflow-y-auto p-5 space-y-6"></div>
+  </main>
+
+  <div id="detailModal"
+    class="fixed inset-0 z-50 hidden bg-black/95 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-[#151e32] w-full max-w-6xl h-[90vh] rounded-xl flex overflow-hidden shadow-2xl">
+      <div class="w-3/4 bg-black flex items-center justify-center relative group">
+        <img id="mImg" class="max-w-full max-h-full object-contain">
+        <a id="mTvLink" target="_blank"
+          class="absolute bottom-6 right-6 bg-blue-600 text-white text-xs px-4 py-2 rounded-full font-bold shadow-lg hidden hover:bg-blue-500 transition cursor-pointer">
+          Open TradingView ↗
+        </a>
+      </div>
+
+      <div
+        class="w-1/4 p-6 overflow-y-auto bg-white dark:bg-[#1e293b] flex flex-col border-l border-gray-100 dark:border-slate-700">
+        <div class="mb-5">
+          <div class="flex justify-between items-start">
+            <div class="text-xs text-gray-400 font-mono" id="mDate"></div>
+            <button onclick="closeModal()" class="text-gray-400 hover:text-red-500 text-xl font-bold">×</button>
+          </div>
+
+          <div class="flex items-baseline gap-2 mt-1">
+            <h2 class="text-3xl font-black text-slate-800 dark:text-white" id="mTicker"></h2>
+            <span id="mDir"
+              class="text-xs font-bold uppercase px-2 py-0.5 rounded border border-gray-300 dark:border-slate-600"></span>
+          </div>
+
+          <div class="mt-2 flex flex-wrap gap-2 items-center">
+            <span id="mStrat"
+              class="text-[10px] font-bold uppercase bg-indigo-50 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-300 px-2 py-1 rounded"></span>
+            <span id="mType"
+              class="text-[10px] font-bold uppercase bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 px-2 py-1 rounded"></span>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3 mb-5 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-lg">
+          <div><span class="text-[9px] text-gray-500 uppercase block">PnL</span><span id="mPnL"
+              class="font-mono font-black text-xl"></span></div>
+          <div><span class="text-[9px] text-gray-500 uppercase block">盈亏目标</span><span id="mProfitTarget"
+              class="font-mono font-bold text-purple-500 text-lg"></span></div>
+          <div class="col-span-2"><span class="text-[9px] text-gray-500 uppercase block">手动离场</span><span
+              id="mManualExit" class="font-mono font-bold"></span></div>
+        </div>
+
+        <div class="space-y-4 flex-1 overflow-y-auto">
+          <div>
+            <h4 class="text-[10px] font-bold text-gray-400 uppercase mb-1">⚡️ Setup Context</h4>
+            <p id="mSetup"
+              class="text-sm text-gray-700 dark:text-gray-300 leading-relaxed bg-gray-50 dark:bg-slate-800/30 p-3 rounded whitespace-pre-wrap">
+            </p>
+          </div>
+          <div>
+            <h4 class="text-[10px] font-bold text-gray-400 uppercase mb-1">📝 Execution Review</h4>
+            <p id="mReview"
+              class="text-sm text-gray-700 dark:text-gray-300 leading-relaxed bg-gray-50 dark:bg-slate-800/30 p-3 rounded whitespace-pre-wrap">
+            </p>
+          </div>
+        </div>
+
+        <div class="mt-5 flex gap-2 border-t border-gray-100 dark:border-slate-700 pt-3">
+          <button id="btnEdit"
+            class="flex-1 bg-blue-600 text-white py-2 rounded-lg font-bold text-xs hover:bg-blue-500 transition">EDIT</button>
+          <button id="btnDel"
+            class="px-4 border border-red-500 text-red-500 rounded-lg font-bold text-xs hover:bg-red-50 dark:hover:bg-red-900/20 transition">DEL</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/app.js" defer></script>
+
+</body>
+
+</html>
+
+
