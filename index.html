@@ -20,22 +20,44 @@
       <div class="login-title">Trading Hub</div>
       <div class="login-sub">邮箱 + 密码登录</div>
 
-      <div class="mt-4">
-        <label class="input-label">Email</label>
-        <input id="loginEmail" type="email" placeholder="email@example.com" class="input-base">
+      <div id="loginForm">
+        <div class="mt-4">
+          <label class="input-label">Email</label>
+          <input id="loginEmail" type="email" placeholder="email@example.com" class="input-base">
+        </div>
+
+        <div class="mt-3">
+          <label class="input-label">Password</label>
+          <input id="loginPassword" type="password" placeholder="••••••••" class="input-base">
+        </div>
+
+        <div class="login-actions">
+          <button id="loginSignInBtn" class="h-[35px] px-3 text-[11px] font-bold bg-blue-600 text-white rounded">Sign In</button>
+          <button id="loginSignUpBtn" class="h-[35px] px-3 text-[11px] font-bold bg-slate-700 text-slate-200 rounded">Sign Up</button>
+        </div>
+
+        <div class="mt-2">
+          <button id="loginForgotBtn" class="login-link">忘记密码？</button>
+        </div>
+
+        <div class="login-status">首次使用请先注册</div>
       </div>
 
-      <div class="mt-3">
-        <label class="input-label">Password</label>
-        <input id="loginPassword" type="password" placeholder="••••••••" class="input-base">
+      <div id="resetForm" class="hidden">
+        <div class="mt-4">
+          <label class="input-label">New Password</label>
+          <input id="resetPassword" type="password" placeholder="至少 6 位" class="input-base">
+        </div>
+        <div class="mt-3">
+          <label class="input-label">Confirm Password</label>
+          <input id="resetPasswordConfirm" type="password" placeholder="再次输入" class="input-base">
+        </div>
+        <div class="login-actions">
+          <button id="resetSubmitBtn" class="h-[35px] px-3 text-[11px] font-bold bg-blue-600 text-white rounded">Set Password</button>
+          <button id="resetBackBtn" class="h-[35px] px-3 text-[11px] font-bold bg-slate-700 text-slate-200 rounded">Back</button>
+        </div>
       </div>
 
-      <div class="login-actions">
-        <button id="loginSignInBtn" class="h-[35px] px-3 text-[11px] font-bold bg-blue-600 text-white rounded">Sign In</button>
-        <button id="loginSignUpBtn" class="h-[35px] px-3 text-[11px] font-bold bg-slate-700 text-slate-200 rounded">Sign Up</button>
-      </div>
-
-      <div class="login-status">首次使用请先注册</div>
       <div id="loginStatus" class="login-status"></div>
     </div>
   </div>
