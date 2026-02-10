@@ -149,11 +149,11 @@ async function signUp() {
     setStatus('注册失败：' + error.message);
     return;
   }
+  // Always require manual login after sign-up
   if (data && data.session) {
-    window.location.href = PANEL_URL;
-    return;
+    await supabaseClient.auth.signOut();
   }
-  setStatus('注册成功。如开启邮箱验证，请查收邮件完成验证。');
+  setStatus('注册成功，请使用账号密码登录。若开启邮箱验证，请先完成邮箱验证。');
 }
 
 async function initLogin() {
