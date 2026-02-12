@@ -1,7 +1,7 @@
 ﻿const SUPABASE_URL = 'https://wqqpyozrvstrzarzjsru.supabase.co';
 const SUPABASE_KEY = 'sb_publishable__5kVr0Gmnw3tVVv4e0Noyg_RRBexQ6c';
 const EMAIL_KEY = 'tradingJournal_email';
-const PANEL_URL = 'panel.html';
+const PANEL_URL = 'panel.html?v=20260212-1';
 
 const supabaseClient = (typeof supabase !== 'undefined')
   ? supabase.createClient(SUPABASE_URL, SUPABASE_KEY)
