@@ -1,5 +1,6 @@
 ﻿// UNIFIED KEY
     const KEY_V34 = 'tradingJournal_v34';
+    const LOCAL_UPDATED_KEY = 'tradingJournal_v34_updated_at';
     const CLOUD_TABLE = 'trade_journal';
     const LOGIN_URL = 'index.html';
     const REQUIRE_AUTH = true;
@@ -36,6 +37,9 @@
           return t;
         });
         localStorage.setItem(KEY_V34, JSON.stringify(trades));
+        if (!localStorage.getItem(LOCAL_UPDATED_KEY)) {
+          localStorage.setItem(LOCAL_UPDATED_KEY, new Date().toISOString());
+        }
       } else {
         trades = [];
       }
@@ -162,6 +166,11 @@
       return true;
     }
 
+    function parseTime(value) {
+      const t = Date.parse(value || '');
+      return Number.isFinite(t) ? t : 0;
+    }
+
     async function syncFromCloud() {
       if (!cloudUser || !supabaseClient) return;
       setSyncStatus('Checking cloud...');
@@ -169,23 +178,18 @@
         const cloud = await fetchCloudData();
         const cloudTrades = cloud ? cloud.trades : null;
         if (cloudTrades && cloudTrades.length) {
-          if (trades.length) {
-            const useCloud = confirm('Cloud data found. Replace local data with cloud data?');
-            if (useCloud) {
-              trades = cloudTrades;
-              localStorage.setItem(KEY_V34, JSON.stringify(trades));
-              resetTickerFilter();
-              applyGlobalFilter();
-              setSyncStatus('Loaded from cloud.');
-            } else {
-              await pushToCloud('Uploading local data...');
-            }
-          } else {
+          const cloudUpdated = parseTime(cloud.updatedAt);
+          const localUpdated = parseTime(localStorage.getItem(LOCAL_UPDATED_KEY));
+
+          if (!trades.length || cloudUpdated >= localUpdated) {
             trades = cloudTrades;
             localStorage.setItem(KEY_V34, JSON.stringify(trades));
+            localStorage.setItem(LOCAL_UPDATED_KEY, cloud.updatedAt || new Date().toISOString());
             resetTickerFilter();
             applyGlobalFilter();
             setSyncStatus('Loaded from cloud.');
+          } else {
+            await pushToCloud('Uploading local data...');
           }
         } else {
           if (trades.length) await pushToCloud('Uploading local data...');
@@ -785,6 +789,7 @@
 
     function saveData() {
       localStorage.setItem(KEY_V34, JSON.stringify(trades));
+      localStorage.setItem(LOCAL_UPDATED_KEY, new Date().toISOString());
       applyGlobalFilter();
       scheduleCloudSync();
     }
