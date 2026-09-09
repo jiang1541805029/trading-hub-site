@@ -13,7 +13,7 @@
 <body class="bg-[#f8fafc] text-slate-800 dark:bg-[#0b1120] dark:text-[#cbd5e1] min-h-screen lg:h-screen lg:overflow-hidden flex flex-col lg:flex-row text-sm">
   <aside class="w-full lg:w-[340px] lg:flex-shrink-0 bg-white dark:bg-[#151e32] border-b lg:border-b-0 lg:border-r border-gray-200 dark:border-slate-700 flex flex-col z-20 shadow-xl lg:overflow-y-auto">
     <div class="p-4 border-b border-gray-100 dark:border-slate-700 flex justify-between items-center sticky top-0 bg-white dark:bg-[#151e32] z-10">
-      <h1 class="font-black text-sm tracking-tight flex items-center gap-2">TRADING HUB <span class="text-[9px] bg-green-600 text-white px-1.5 py-0.5 rounded">v35.0</span></h1>
+      <h1 class="font-black text-sm tracking-tight flex items-center gap-2">TRADING HUB <span class="text-[9px] bg-green-600 text-white px-1.5 py-0.5 rounded">v35.1</span></h1>
       <div class="flex gap-2">
         <button onclick="exportData()" class="text-[10px] text-green-600 font-bold hover:underline">备份</button>
         <button onclick="document.getElementById('importFile').click()" class="text-[10px] text-yellow-600 font-bold hover:underline">恢复</button>
@@ -66,6 +66,7 @@
         <div><label class="input-label">交易模式</label><select id="tradePattern" class="input-base font-bold cursor-pointer" required></select></div>
       </div>
       <div><label class="input-label">盈利</label><div class="flex gap-2"><input type="number" step="0.01" id="manualPnL" placeholder="亏损请输入负数" class="input-base font-black text-lg text-indigo-600 dark:text-indigo-400" required><select id="currency" class="input-base w-[120px] font-bold"><option value="USD">美元</option><option value="CNY">人民币</option><option value="SGD">新加坡元</option></select></div></div>
+      <div><label class="input-label">交易截图（选填）</label><input type="text" id="snapshotId" class="input-base font-mono" placeholder="输入 TradingView 快照编号"></div>
       <div><label class="input-label">复盘</label><textarea id="review" class="input-base" placeholder="记录判断、执行和改进……"></textarea></div>
     </form>
     <div class="absolute bottom-0 w-full p-3 bg-white/95 dark:bg-[#1e293b]/95 backdrop-blur border-t border-gray-100 dark:border-slate-700 z-20"><button id="submitBtn" onclick="document.getElementById('tradeForm').requestSubmit()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold h-9 rounded shadow-md transition text-xs">保存交易</button></div>
@@ -81,10 +82,11 @@
       <div class="flex justify-between items-start"><div><div id="mDate" class="text-xs text-gray-400 font-mono"></div><h2 id="mTicker" class="text-3xl font-black mt-1"></h2></div><button onclick="closeModal()" class="text-gray-400 hover:text-red-500 text-2xl">×</button></div>
       <div class="flex flex-wrap gap-2 mt-4"><span id="mOrderType" class="detail-tag"></span><span id="mTradeCategory" class="detail-tag"></span><span id="mTradePattern" class="detail-tag"></span></div>
       <div class="mt-5 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-lg"><div class="stat-label">盈利</div><div id="mPnL" class="font-mono font-black text-2xl"></div></div>
+      <a id="mSnapshotLink" target="_blank" rel="noopener noreferrer" class="hidden mt-3 text-sm font-bold text-blue-500 hover:underline">查看 TradingView 交易截图 ↗</a>
       <div class="mt-5"><h4 class="text-[10px] font-bold text-gray-400 mb-1">复盘</h4><p id="mReview" class="text-sm leading-relaxed bg-gray-50 dark:bg-slate-800/30 p-3 rounded whitespace-pre-wrap min-h-[80px]"></p></div>
       <div class="mt-5 flex gap-2 border-t border-gray-100 dark:border-slate-700 pt-3"><button id="btnEdit" class="flex-1 bg-blue-600 text-white py-2 rounded-lg font-bold text-xs">编辑</button><button id="btnDel" class="px-4 border border-red-500 text-red-500 rounded-lg font-bold text-xs">删除</button></div>
     </div>
   </div>
-  <script src="js/app.js?v=20260909-1" defer></script>
+  <script src="js/app.js?v=20260909-2" defer></script>
 </body>
 </html>

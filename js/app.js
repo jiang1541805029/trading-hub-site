@@ -56,6 +56,18 @@ function inferCategory(pattern) {
   return '趋势交易';
 }
 
+function normalizeSnapshotId(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const match = raw.match(/tradingview\.com\/x\/([^/?#]+)/i);
+  return (match ? match[1] : raw).replace(/[^a-z0-9_-]/gi, '');
+}
+
+function snapshotUrl(snapshotId) {
+  const id = normalizeSnapshotId(snapshotId);
+  return id ? `https://www.tradingview.com/x/${encodeURIComponent(id)}/` : '';
+}
+
 function normalizeTrade(t) {
   const dateStr = t.dateStr || (t.timestamp ? localDateString(new Date(t.timestamp)) : '');
   const pattern = t.tradePattern || t.strategy || '';
@@ -70,6 +82,7 @@ function normalizeTrade(t) {
     tradePattern: pattern || '未记录',
     currency: CURRENCIES[t.currency] ? t.currency : 'USD',
     pnl: Number.parseFloat(t.pnl) || 0,
+    snapshotId: normalizeSnapshotId(t.snapshotId || (/tradingview\.com\/x\//i.test(t.tvLink || '') ? t.tvLink : '')),
     review: t.review || ''
   };
 }
@@ -242,6 +255,7 @@ document.getElementById('tradeForm').addEventListener('submit', event => {
     tradePattern: document.getElementById('tradePattern').value,
     pnl: Number.parseFloat(document.getElementById('manualPnL').value) || 0,
     currency: document.getElementById('currency').value,
+    snapshotId: normalizeSnapshotId(document.getElementById('snapshotId').value),
     review: document.getElementById('review').value.trim()
   };
 
@@ -253,6 +267,7 @@ document.getElementById('tradeForm').addEventListener('submit', event => {
   } else {
     trades.unshift(trade);
     document.getElementById('manualPnL').value = '';
+    document.getElementById('snapshotId').value = '';
     document.getElementById('review').value = '';
   }
   saveData();
@@ -420,7 +435,7 @@ function renderGallery(dataset, dateFilter) {
   const groups = {};
   list.forEach(t => (groups[t.dateStr || '未知日期'] ||= []).push(t));
   container.innerHTML = Object.keys(groups).sort().reverse().map(date => {
-    const cards = groups[date].map(t => `<button class="trade-card text-left" data-id="${escapeHtml(t.id)}"><div class="flex justify-between items-start gap-3"><div><div class="font-black text-lg">${escapeHtml(t.ticker)}</div><div class="text-[10px] text-gray-400 mt-1">${escapeHtml(t.orderType)} · ${escapeHtml(t.tradeCategory)}</div></div><div class="font-mono font-black ${t.pnl >= 0 ? 'text-[#00C805]' : 'text-[#FF5000]'}">${formatMoney(t.pnl, t.currency, true)}</div></div><div class="mt-3 text-xs font-bold text-indigo-500">${escapeHtml(t.tradePattern)}</div>${t.review ? `<div class="mt-2 text-[11px] text-gray-500 line-clamp-2">${escapeHtml(t.review)}</div>` : ''}</button>`).join('');
+    const cards = groups[date].map(t => `<button class="trade-card text-left" data-id="${escapeHtml(t.id)}"><div class="flex justify-between items-start gap-3"><div><div class="font-black text-lg">${escapeHtml(t.ticker)}</div><div class="text-[10px] text-gray-400 mt-1">${escapeHtml(t.orderType)} · ${escapeHtml(t.tradeCategory)}</div></div><div class="font-mono font-black ${t.pnl >= 0 ? 'text-[#00C805]' : 'text-[#FF5000]'}">${formatMoney(t.pnl, t.currency, true)}</div></div><div class="mt-3 flex items-center justify-between gap-2"><span class="text-xs font-bold text-indigo-500">${escapeHtml(t.tradePattern)}</span>${t.snapshotId ? '<span class="text-[10px] text-blue-500">📷 查看截图</span>' : ''}</div>${t.review ? `<div class="mt-2 text-[11px] text-gray-500 line-clamp-2">${escapeHtml(t.review)}</div>` : ''}</button>`).join('');
     return `<section><div class="sticky top-0 bg-gray-100/90 dark:bg-[#0b1120]/90 backdrop-blur z-10 py-2 text-xs font-bold text-gray-500">${escapeHtml(date)}</div><div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">${cards}</div></section>`;
   }).join('') || '<div class="text-center text-gray-400 py-16">暂无交易记录</div>';
   container.querySelectorAll('.trade-card').forEach(card => card.onclick = () => openDetail(card.dataset.id));
@@ -456,6 +471,15 @@ function openDetail(id) {
   const pnl = document.getElementById('mPnL');
   pnl.innerText = formatMoney(t.pnl, t.currency, true);
   pnl.className = `font-mono font-black text-2xl ${t.pnl >= 0 ? 'text-[#00C805]' : 'text-[#FF5000]'}`;
+  const snapshotLink = document.getElementById('mSnapshotLink');
+  const url = snapshotUrl(t.snapshotId);
+  if (url) {
+    snapshotLink.href = url;
+    snapshotLink.classList.remove('hidden');
+  } else {
+    snapshotLink.removeAttribute('href');
+    snapshotLink.classList.add('hidden');
+  }
   document.getElementById('mReview').innerText = t.review || '暂无复盘内容';
   document.getElementById('btnEdit').onclick = () => { closeModal(); loadEdit(t.id); };
   document.getElementById('btnDel').onclick = () => {
@@ -479,6 +503,7 @@ function loadEdit(id) {
   updatePatternOptions(t.tradePattern);
   document.getElementById('manualPnL').value = t.pnl;
   document.getElementById('currency').value = t.currency;
+  document.getElementById('snapshotId').value = t.snapshotId || '';
   document.getElementById('review').value = t.review;
   document.getElementById('formTitle').innerText = '✏️ 编辑交易';
   document.getElementById('cancelEditBtn').classList.remove('hidden');
