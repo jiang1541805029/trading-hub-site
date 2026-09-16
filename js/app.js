@@ -1,7 +1,7 @@
 const LEGACY_LOCAL_KEY = 'tradingJournal_v34';
 const LEGACY_UPDATED_KEY = 'tradingJournal_v34_updated_at';
 const LEGACY_OWNER_KEY = 'tradingJournal_legacy_owner';
-const CLOUD_TABLE = 'trade_journal';
+const CLOUD_TABLE = 'trades';
 const LOGIN_URL = 'index.html';
 const REQUIRE_AUTH = true;
 
@@ -26,7 +26,6 @@ const CURRENCIES = {
 };
 
 let cloudUser = null;
-let cloudSyncTimer = null;
 let cloudWriteChain = Promise.resolve();
 let activeLocalKey = null;
 let activeUpdatedKey = null;
@@ -165,8 +164,7 @@ function updateAuthUI(user) {
 }
 
 async function signOut() {
-  clearTimeout(cloudSyncTimer);
-  if (cloudUser && supabaseClient) await pushToCloud('正在完成最后同步……');
+  await cloudWriteChain.catch(() => false);
   if (supabaseClient) await supabaseClient.auth.signOut();
   trades = [];
   activeLocalKey = null;
@@ -177,25 +175,54 @@ async function signOut() {
 async function fetchCloudData() {
   if (!cloudUser || !supabaseClient) return null;
   const { data, error } = await supabaseClient.from(CLOUD_TABLE)
-    .select('data, updated_at').eq('user_id', cloudUser.id).maybeSingle();
+    .select('id, trade_date, trade_timestamp, ticker, order_type, trade_category, trade_pattern, pnl, currency, snapshot_id, review, created_at, updated_at')
+    .eq('user_id', cloudUser.id)
+    .order('trade_timestamp', { ascending: false });
   if (error) throw error;
-  if (!data || !Array.isArray(data.data)) return null;
-  return { trades: data.data.map(normalizeTrade), updatedAt: data.updated_at };
+  return (data || []).map(rowToTrade);
 }
 
-async function pushToCloud(reason = '正在同步……') {
+function tradeToRow(trade, userId) {
+  return {
+    user_id: userId,
+    id: String(trade.id),
+    trade_date: trade.dateStr,
+    trade_timestamp: trade.timestamp,
+    ticker: trade.ticker,
+    order_type: trade.orderType,
+    trade_category: trade.tradeCategory,
+    trade_pattern: trade.tradePattern,
+    pnl: trade.pnl,
+    currency: trade.currency,
+    snapshot_id: trade.snapshotId || null,
+    review: trade.review || ''
+  };
+}
+
+function rowToTrade(row) {
+  return normalizeTrade({
+    id: row.id,
+    dateStr: row.trade_date,
+    timestamp: row.trade_timestamp,
+    ticker: row.ticker,
+    orderType: row.order_type,
+    tradeCategory: row.trade_category,
+    tradePattern: row.trade_pattern,
+    pnl: row.pnl,
+    currency: row.currency,
+    snapshotId: row.snapshot_id,
+    review: row.review
+  });
+}
+
+function queueCloudWrite(action, reason = '正在同步……') {
   if (!cloudUser || !supabaseClient) return false;
   const userId = cloudUser.id;
-  const payload = trades.map(trade => ({ ...trade }));
   cloudWriteChain = cloudWriteChain.catch(() => false).then(async () => {
     if (!cloudUser || cloudUser.id !== userId) return false;
     setSyncStatus(reason);
     try {
-      const { error } = await supabaseClient.from(CLOUD_TABLE).upsert({
-        user_id: userId,
-        data: payload,
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'user_id' });
+      const { error } = await action(userId);
       if (error) throw error;
       setSyncStatus(`已同步 ${new Date().toLocaleTimeString()}`);
       return true;
@@ -207,43 +234,41 @@ async function pushToCloud(reason = '正在同步……') {
   return cloudWriteChain;
 }
 
-function parseTime(value) {
-  const time = Date.parse(value || '');
-  return Number.isFinite(time) ? time : 0;
+function upsertCloudTrade(trade, reason = '正在同步交易……') {
+  const snapshot = { ...trade };
+  return queueCloudWrite(userId => supabaseClient.from(CLOUD_TABLE)
+    .upsert(tradeToRow(snapshot, userId), { onConflict: 'user_id,id' }), reason);
+}
+
+function deleteCloudTrade(id) {
+  const tradeId = String(id);
+  return queueCloudWrite(userId => supabaseClient.from(CLOUD_TABLE)
+    .delete().eq('user_id', userId).eq('id', tradeId), '正在从云端删除记录……');
+}
+
+function replaceCloudTrades(dataset, reason = '正在同步全部记录……') {
+  const snapshot = dataset.map(trade => ({ ...trade }));
+  return queueCloudWrite(async userId => {
+    const { error: deleteError } = await supabaseClient.from(CLOUD_TABLE).delete().eq('user_id', userId);
+    if (deleteError || !snapshot.length) return { error: deleteError };
+    return supabaseClient.from(CLOUD_TABLE)
+      .upsert(snapshot.map(trade => tradeToRow(trade, userId)), { onConflict: 'user_id,id' });
+  }, reason);
 }
 
 async function syncFromCloud() {
   if (!cloudUser || !supabaseClient) return;
   setSyncStatus('正在检查云端数据……');
   try {
-    const cloud = await fetchCloudData();
-    if (cloud) {
-      const cloudTime = parseTime(cloud.updatedAt);
-      const localTime = parseTime(localStorage.getItem(activeUpdatedKey));
-      if (!trades.length || cloudTime >= localTime) {
-        trades = cloud.trades;
-        localStorage.setItem(activeLocalKey, JSON.stringify(trades));
-        localStorage.setItem(activeUpdatedKey, cloud.updatedAt || new Date().toISOString());
-        resetTickerFilter();
-        applyGlobalFilter();
-        setSyncStatus('已载入云端数据');
-      } else {
-        await pushToCloud('正在上传本地数据……');
-      }
-    } else if (trades.length) {
-      await pushToCloud('正在上传本地数据……');
-    } else {
-      setSyncStatus('暂无云端数据');
-    }
+    const cloudTrades = await fetchCloudData();
+    trades = cloudTrades;
+    saveLocalData();
+    resetTickerFilter();
+    applyGlobalFilter();
+    setSyncStatus(cloudTrades.length ? '已载入云端数据' : '暂无云端数据');
   } catch (error) {
     setSyncStatus(`同步失败：${error.message || '未知错误'}`);
   }
-}
-
-function scheduleCloudSync() {
-  if (!cloudUser) return;
-  clearTimeout(cloudSyncTimer);
-  cloudSyncTimer = setTimeout(() => pushToCloud(), 800);
 }
 
 async function initCloud() {
@@ -268,7 +293,6 @@ async function initCloud() {
     updateAuthUI(cloudUser);
     if (cloudUser) {
       if (changedUser) {
-        clearTimeout(cloudSyncTimer);
         cloudWriteChain = Promise.resolve();
         activateUserStorage(cloudUser);
         resetTickerFilter();
@@ -304,15 +328,18 @@ function initTaxonomy() {
   updatePatternOptions();
 }
 
-function saveData() {
+function saveLocalData() {
   if (!cloudUser || !activeLocalKey || !activeUpdatedKey) return;
   localStorage.setItem(activeLocalKey, JSON.stringify(trades));
   localStorage.setItem(activeUpdatedKey, new Date().toISOString());
-  applyGlobalFilter();
-  scheduleCloudSync();
 }
 
-document.getElementById('tradeForm').addEventListener('submit', event => {
+function saveData() {
+  saveLocalData();
+  applyGlobalFilter();
+}
+
+document.getElementById('tradeForm').addEventListener('submit', async event => {
   event.preventDefault();
   const editId = document.getElementById('editId').value.trim();
   const dateStr = document.getElementById('tradeDate').value;
@@ -342,6 +369,8 @@ document.getElementById('tradeForm').addEventListener('submit', event => {
     document.getElementById('review').value = '';
   }
   saveData();
+  const synced = await upsertCloudTrade(trade, editId ? '正在更新云端记录……' : '正在保存到云端……');
+  if (!synced) setSyncStatus('记录已保存在本机，云端同步失败，请稍后重试');
 });
 
 function getFilteredTrades() {
@@ -572,12 +601,10 @@ function openDetail(id) {
   document.getElementById('btnDel').onclick = async () => {
     if (confirm('确定永久删除这条交易记录吗？')) {
       trades = trades.filter(item => item.id !== t.id);
-      clearTimeout(cloudSyncTimer);
-      localStorage.setItem(activeLocalKey, JSON.stringify(trades));
-      localStorage.setItem(activeUpdatedKey, new Date().toISOString());
+      saveLocalData();
       applyGlobalFilter();
       closeModal();
-      const synced = await pushToCloud('正在从云端删除记录……');
+      const synced = await deleteCloudTrade(t.id);
       if (!synced) setSyncStatus('删除已保存在本机，云端同步失败，请稍后重试');
     }
   };
@@ -640,11 +667,9 @@ document.addEventListener('keydown', event => {
 async function clearAllData() {
   if (!confirm(cloudUser ? '确定清空全部记录吗？云端数据也会同步清空。' : '确定清空全部记录吗？')) return;
   trades = [];
-  clearTimeout(cloudSyncTimer);
-  localStorage.setItem(activeLocalKey, '[]');
-  localStorage.setItem(activeUpdatedKey, new Date().toISOString());
+  saveLocalData();
   applyGlobalFilter();
-  const synced = await pushToCloud('正在清空云端记录……');
+  const synced = await replaceCloudTrades([], '正在清空云端记录……');
   if (!synced) setSyncStatus('清空已保存在本机，云端同步失败，请稍后重试');
 }
 
@@ -665,16 +690,18 @@ function importData(input) {
   const file = input.files?.[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = event => {
+  reader.onload = async event => {
     try {
       const data = JSON.parse(event.target.result);
       if (!Array.isArray(data)) throw new Error('格式错误');
       trades = data.map(normalizeTrade);
       resetTickerFilter();
       saveData();
+      const synced = await replaceCloudTrades(trades, '正在恢复云端记录……');
+      if (!synced) throw new Error('云端同步失败');
       alert(`成功恢复 ${trades.length} 条记录`);
-    } catch (_) {
-      alert('恢复失败：请选择正确的 JSON 备份文件');
+    } catch (error) {
+      alert(`恢复失败：${error.message || '请选择正确的 JSON 备份文件'}`);
     } finally {
       input.value = '';
     }
