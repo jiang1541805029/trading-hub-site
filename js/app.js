@@ -438,12 +438,41 @@ function formatMoney(value, currency, sign = false) {
   return `${prefix}${symbol}${Number(value || 0).toFixed(2)}`;
 }
 
+function calculatePayoffRatio(wins, losses) {
+  if (!wins.length || !losses.length) return null;
+  const avgWin = wins.reduce((sum, trade) => sum + trade.pnl, 0) / wins.length;
+  const avgLoss = Math.abs(losses.reduce((sum, trade) => sum + trade.pnl, 0) / losses.length);
+  return avgLoss ? avgWin / avgLoss : null;
+}
+
+function renderBreakdownStats(dataset, field, containerId) {
+  const groups = new Map();
+  dataset.forEach(trade => {
+    const name = trade[field] || '未记录';
+    if (!groups.has(name)) groups.set(name, []);
+    groups.get(name).push(trade);
+  });
+
+  const rows = [...groups.entries()].sort((a, b) => b[1].length - a[1].length).map(([name, group]) => {
+    const wins = group.filter(trade => trade.pnl > 0);
+    const losses = group.filter(trade => trade.pnl < 0);
+    const winRate = group.length ? wins.length / group.length * 100 : 0;
+    const payoffRatio = calculatePayoffRatio(wins, losses);
+    return `<div class="grid grid-cols-[minmax(0,1fr)_52px_52px] gap-2 items-center text-[10px] py-1.5 border-b border-gray-100 dark:border-slate-700"><span class="truncate font-medium" title="${escapeHtml(name)}">${escapeHtml(name)} <span class="text-gray-400">(${group.length})</span></span><span class="text-right text-blue-500 font-bold">${winRate.toFixed(1)}%</span><span class="text-right text-purple-500 font-bold">${payoffRatio === null ? '—' : payoffRatio.toFixed(2)}</span></div>`;
+  }).join('');
+
+  document.getElementById(containerId).innerHTML = groups.size
+    ? `<div class="grid grid-cols-[minmax(0,1fr)_52px_52px] gap-2 text-[9px] text-gray-400 font-bold pb-1"><span>名称（笔数）</span><span class="text-right">胜率</span><span class="text-right">盈亏比</span></div>${rows}`
+    : '<div class="text-[10px] text-gray-400">暂无数据</div>';
+}
+
 function renderStats(dataset, currency) {
   const wins = dataset.filter(t => t.pnl > 0);
   const losses = dataset.filter(t => t.pnl < 0);
   const net = dataset.reduce((sum, t) => sum + t.pnl, 0);
   const avgWin = wins.length ? wins.reduce((s, t) => s + t.pnl, 0) / wins.length : 0;
   const avgLoss = losses.length ? losses.reduce((s, t) => s + t.pnl, 0) / losses.length : 0;
+  const payoffRatio = calculatePayoffRatio(wins, losses);
   const series = buildDailySeries(dataset);
   const equityData = series.equity.length ? series.equity : [0];
   const labels = series.labels.length ? series.labels : [''];
@@ -470,15 +499,9 @@ function renderStats(dataset, currency) {
   document.getElementById('statCount').innerText = dataset.length;
   document.getElementById('statAvgWin').innerText = formatMoney(avgWin, currency);
   document.getElementById('statAvgLoss').innerText = formatMoney(avgLoss, currency);
-
-  const patternMap = {};
-  dataset.forEach(t => {
-    const key = t.tradePattern || '未记录';
-    patternMap[key] ||= { count: 0, wins: 0 };
-    patternMap[key].count += 1;
-    if (t.pnl > 0) patternMap[key].wins += 1;
-  });
-  document.getElementById('stratStats').innerHTML = Object.entries(patternMap).sort((a, b) => b[1].count - a[1].count).map(([name, s]) => `<div class="flex justify-between text-[10px] py-1 border-b border-gray-100 dark:border-slate-700"><span>${escapeHtml(name)}</span><span class="text-blue-500 font-bold">${(s.wins / s.count * 100).toFixed(1)}% <span class="text-gray-400">(${s.count})</span></span></div>`).join('') || '<div class="text-[10px] text-gray-400">暂无数据</div>';
+  document.getElementById('statPayoffRatio').innerText = payoffRatio === null ? '—' : payoffRatio.toFixed(2);
+  renderBreakdownStats(dataset, 'tradeCategory', 'categoryStats');
+  renderBreakdownStats(dataset, 'tradePattern', 'patternStats');
 }
 
 function setChartMode(mode) {
