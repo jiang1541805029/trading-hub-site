@@ -68,6 +68,12 @@ function snapshotUrl(snapshotId) {
   return id ? `https://www.tradingview.com/x/${encodeURIComponent(id)}/` : '';
 }
 
+function snapshotImageUrl(snapshotId) {
+  const id = normalizeSnapshotId(snapshotId);
+  if (!id) return '';
+  return `https://s3.tradingview.com/snapshots/${id[0].toLowerCase()}/${encodeURIComponent(id)}.png`;
+}
+
 function normalizeTrade(t) {
   const dateStr = t.dateStr || (t.timestamp ? localDateString(new Date(t.timestamp)) : '');
   const pattern = t.tradePattern || t.strategy || '';
@@ -435,10 +441,16 @@ function renderGallery(dataset, dateFilter) {
   const groups = {};
   list.forEach(t => (groups[t.dateStr || '未知日期'] ||= []).push(t));
   container.innerHTML = Object.keys(groups).sort().reverse().map(date => {
-    const cards = groups[date].map(t => `<button class="trade-card text-left" data-id="${escapeHtml(t.id)}"><div class="flex justify-between items-start gap-3"><div><div class="font-black text-lg">${escapeHtml(t.ticker)}</div><div class="text-[10px] text-gray-400 mt-1">${escapeHtml(t.orderType)} · ${escapeHtml(t.tradeCategory)}</div></div><div class="font-mono font-black ${t.pnl >= 0 ? 'text-[#00C805]' : 'text-[#FF5000]'}">${formatMoney(t.pnl, t.currency, true)}</div></div><div class="mt-3 flex items-center justify-between gap-2"><span class="text-xs font-bold text-indigo-500">${escapeHtml(t.tradePattern)}</span>${t.snapshotId ? '<span class="text-[10px] text-blue-500">📷 查看截图</span>' : ''}</div>${t.review ? `<div class="mt-2 text-[11px] text-gray-500 line-clamp-2">${escapeHtml(t.review)}</div>` : ''}</button>`).join('');
+    const cards = groups[date].map(t => {
+      const imageUrl = snapshotImageUrl(t.snapshotId);
+      return `<button class="trade-card text-left" data-id="${escapeHtml(t.id)}"><div class="flex justify-between items-start gap-3"><div><div class="font-black text-lg">${escapeHtml(t.ticker)}</div><div class="text-[10px] text-gray-400 mt-1">${escapeHtml(t.orderType)} · ${escapeHtml(t.tradeCategory)}</div></div><div class="font-mono font-black ${t.pnl >= 0 ? 'text-[#00C805]' : 'text-[#FF5000]'}">${formatMoney(t.pnl, t.currency, true)}</div></div><div class="mt-3 flex items-center justify-between gap-2"><span class="text-xs font-bold text-indigo-500">${escapeHtml(t.tradePattern)}</span>${imageUrl ? '<span class="text-[10px] text-blue-500">📷 点击查看大图</span>' : ''}</div>${t.review ? `<div class="mt-2 text-[11px] text-gray-500 line-clamp-2">${escapeHtml(t.review)}</div>` : ''}${imageUrl ? `<span class="snapshot-thumb-wrap"><img class="snapshot-thumb" src="${escapeHtml(imageUrl)}" alt="TradingView 交易截图" loading="lazy" referrerpolicy="no-referrer"></span>` : ''}</button>`;
+    }).join('');
     return `<section><div class="sticky top-0 bg-gray-100/90 dark:bg-[#0b1120]/90 backdrop-blur z-10 py-2 text-xs font-bold text-gray-500">${escapeHtml(date)}</div><div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">${cards}</div></section>`;
   }).join('') || '<div class="text-center text-gray-400 py-16">暂无交易记录</div>';
   container.querySelectorAll('.trade-card').forEach(card => card.onclick = () => openDetail(card.dataset.id));
+  container.querySelectorAll('.snapshot-thumb').forEach(img => {
+    img.addEventListener('error', () => img.closest('.snapshot-thumb-wrap')?.remove());
+  });
 }
 
 function syncFilter(dateStr) {
@@ -472,13 +484,23 @@ function openDetail(id) {
   pnl.innerText = formatMoney(t.pnl, t.currency, true);
   pnl.className = `font-mono font-black text-2xl ${t.pnl >= 0 ? 'text-[#00C805]' : 'text-[#FF5000]'}`;
   const snapshotLink = document.getElementById('mSnapshotLink');
+  const snapshotPreview = document.getElementById('mSnapshotPreview');
+  const snapshotImg = document.getElementById('mSnapshotImg');
   const url = snapshotUrl(t.snapshotId);
-  if (url) {
+  const imageUrl = snapshotImageUrl(t.snapshotId);
+  if (url && imageUrl) {
     snapshotLink.href = url;
     snapshotLink.classList.remove('hidden');
+    snapshotImg.src = imageUrl;
+    snapshotPreview.classList.remove('hidden');
+    snapshotPreview.onclick = () => openSnapshotLightbox(imageUrl);
+    snapshotImg.onerror = () => snapshotPreview.classList.add('hidden');
   } else {
     snapshotLink.removeAttribute('href');
     snapshotLink.classList.add('hidden');
+    snapshotImg.removeAttribute('src');
+    snapshotPreview.classList.add('hidden');
+    snapshotPreview.onclick = null;
   }
   document.getElementById('mReview').innerText = t.review || '暂无复盘内容';
   document.getElementById('btnEdit').onclick = () => { closeModal(); loadEdit(t.id); };
@@ -525,6 +547,25 @@ function resetForm() {
 function closeModal() {
   document.getElementById('detailModal').classList.add('hidden');
 }
+
+function openSnapshotLightbox(imageUrl) {
+  if (!imageUrl) return;
+  document.getElementById('snapshotLightboxImg').src = imageUrl;
+  const lightbox = document.getElementById('snapshotLightbox');
+  lightbox.classList.remove('hidden');
+  lightbox.classList.add('flex');
+}
+
+function closeSnapshotLightbox() {
+  const lightbox = document.getElementById('snapshotLightbox');
+  lightbox.classList.add('hidden');
+  lightbox.classList.remove('flex');
+  document.getElementById('snapshotLightboxImg').removeAttribute('src');
+}
+
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape') closeSnapshotLightbox();
+});
 
 function clearAllData() {
   if (!confirm(cloudUser ? '确定清空全部记录吗？云端数据也会同步清空。' : '确定清空全部记录吗？')) return;
