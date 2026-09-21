@@ -27,6 +27,8 @@ const CURRENCIES = {
 
 let cloudUser = null;
 let cloudWriteChain = Promise.resolve();
+let cloudReadVersion = 0;
+let localMutationVersion = 0;
 let activeLocalKey = null;
 let activeUpdatedKey = null;
 let activePendingKey = null;
@@ -167,6 +169,7 @@ function updateAuthUI(user) {
 }
 
 async function signOut() {
+  cloudReadVersion += 1;
   await cloudWriteChain.catch(() => false);
   if (supabaseClient) await supabaseClient.auth.signOut();
   trades = [];
@@ -176,14 +179,14 @@ async function signOut() {
   window.location.href = LOGIN_URL;
 }
 
-async function fetchCloudData() {
-  if (!cloudUser || !supabaseClient) return null;
+async function fetchCloudData(userId) {
+  if (!supabaseClient) return null;
   const pageSize = 1000;
   const rows = [];
   for (let from = 0; ; from += pageSize) {
     const { data, error } = await supabaseClient.from(CLOUD_TABLE)
       .select('id, trade_date, trade_timestamp, ticker, order_type, trade_category, trade_pattern, pnl, currency, snapshot_id, review, created_at, updated_at')
-      .eq('user_id', cloudUser.id)
+      .eq('user_id', userId)
       .order('trade_timestamp', { ascending: false })
       .order('id', { ascending: true })
       .range(from, from + pageSize - 1);
@@ -227,16 +230,16 @@ function rowToTrade(row) {
   });
 }
 
-function readPendingOperations() {
-  if (!activePendingKey) return [];
+function readPendingOperations(key = activePendingKey) {
+  if (!key) return [];
   try {
-    const value = JSON.parse(localStorage.getItem(activePendingKey) || '[]');
+    const value = JSON.parse(localStorage.getItem(key) || '[]');
     return Array.isArray(value) ? value : [];
   } catch (_) { return []; }
 }
 
-function writePendingOperations(operations) {
-  if (activePendingKey) localStorage.setItem(activePendingKey, JSON.stringify(operations));
+function writePendingOperations(operations, key = activePendingKey) {
+  if (key) localStorage.setItem(key, JSON.stringify(operations));
 }
 
 function enqueuePendingOperation(operation) {
@@ -277,10 +280,10 @@ function queueCloudWrite(action, reason = '正在同步……') {
     try {
       const { error } = await action(userId);
       if (error) throw error;
-      setSyncStatus(`已同步 ${new Date().toLocaleTimeString()}`);
+      if (cloudUser?.id === userId) setSyncStatus(`已同步 ${new Date().toLocaleTimeString()}`);
       return true;
     } catch (error) {
-      setSyncStatus(`同步失败：${error.message || '未知错误'}`);
+      if (cloudUser?.id === userId) setSyncStatus(`同步失败：${error.message || '未知错误'}`);
       return false;
     }
   });
@@ -288,9 +291,11 @@ function queueCloudWrite(action, reason = '正在同步……') {
 }
 
 function flushPendingOperations(reason = '正在同步……') {
+  const pendingKey = activePendingKey;
   return queueCloudWrite(async userId => {
-    const operations = readPendingOperations();
+    const operations = readPendingOperations(pendingKey);
     for (let index = 0; index < operations.length; index += 1) {
+      if (cloudUser?.id !== userId) return { error: new Error('账号已切换') };
       const operation = operations[index];
       let result;
       if (operation.type === 'upsert') {
@@ -304,7 +309,7 @@ function flushPendingOperations(reason = '正在同步……') {
         result = await supabaseClient.rpc('replace_user_trades', { p_trades: rows });
       } else continue;
       if (result.error) return { error: result.error };
-      writePendingOperations(readPendingOperations().filter(item => item.opId !== operation.opId));
+      writePendingOperations(readPendingOperations(pendingKey).filter(item => item.opId !== operation.opId), pendingKey);
     }
     return { error: null };
   }, reason);
@@ -312,9 +317,20 @@ function flushPendingOperations(reason = '正在同步……') {
 
 async function syncFromCloud() {
   if (!cloudUser || !supabaseClient) return;
+  const userId = cloudUser.id;
+  const readVersion = ++cloudReadVersion;
+  const isCurrent = () => cloudUser?.id === userId && cloudReadVersion === readVersion;
   setSyncStatus('正在检查云端数据……');
   try {
-    const cloudTrades = await fetchCloudData();
+    let cloudTrades;
+    for (;;) {
+      const mutationVersion = localMutationVersion;
+      cloudTrades = await fetchCloudData(userId);
+      if (!isCurrent()) return;
+      if (mutationVersion === localMutationVersion) break;
+      await cloudWriteChain.catch(() => false);
+      if (!isCurrent()) return;
+    }
     const pending = readPendingOperations();
     trades = applyPendingOperations(cloudTrades, pending);
     saveLocalData();
@@ -322,10 +338,10 @@ async function syncFromCloud() {
     applyGlobalFilter();
     if (pending.length) {
       const synced = await flushPendingOperations('正在恢复未完成的同步……');
-      if (!synced) setSyncStatus(`有 ${readPendingOperations().length} 项变更待同步，下次打开时会重试`);
-    } else setSyncStatus(cloudTrades.length ? '已载入云端数据' : '暂无云端数据');
+      if (!synced && isCurrent()) setSyncStatus(`有 ${readPendingOperations().length} 项变更待同步，下次打开时会重试`);
+    } else if (isCurrent()) setSyncStatus(cloudTrades.length ? '已载入云端数据' : '暂无云端数据');
   } catch (error) {
-    setSyncStatus(`同步失败：${error.message || '未知错误'}`);
+    if (isCurrent()) setSyncStatus(`同步失败：${error.message || '未知错误'}`);
   }
 }
 
@@ -351,6 +367,8 @@ async function initCloud() {
     updateAuthUI(cloudUser);
     if (cloudUser) {
       if (changedUser) {
+        cloudReadVersion += 1;
+        localMutationVersion += 1;
         cloudWriteChain = Promise.resolve();
         activateUserStorage(cloudUser);
         resetTickerFilter();
@@ -358,6 +376,8 @@ async function initCloud() {
       }
       syncFromCloud();
     } else {
+      cloudReadVersion += 1;
+      localMutationVersion += 1;
       trades = [];
       activeLocalKey = null;
       activeUpdatedKey = null;
@@ -421,6 +441,7 @@ document.getElementById('tradeForm').addEventListener('submit', async event => {
     return;
   }
 
+  localMutationVersion += 1;
   if (editId) {
     const index = trades.findIndex(t => t.id === editId);
     if (index >= 0) trades[index] = trade;
@@ -691,6 +712,7 @@ function openDetail(id) {
   document.getElementById('btnEdit').onclick = () => { closeModal(); loadEdit(t.id); };
   document.getElementById('btnDel').onclick = async () => {
     if (confirm('确定永久删除这条交易记录吗？')) {
+      localMutationVersion += 1;
       trades = trades.filter(item => item.id !== t.id);
       saveLocalData();
       applyGlobalFilter();
@@ -758,6 +780,7 @@ document.addEventListener('keydown', event => {
 
 async function clearAllData() {
   if (!confirm(cloudUser ? '确定清空全部记录吗？云端数据也会同步清空。' : '确定清空全部记录吗？')) return;
+  localMutationVersion += 1;
   trades = [];
   saveLocalData();
   applyGlobalFilter();
@@ -799,6 +822,7 @@ function importData(input) {
         if (ids.has(trade.id)) throw new Error(`第 ${index + 1} 条记录 ID 重复`);
         ids.add(trade.id);
       });
+      localMutationVersion += 1;
       trades = normalized;
       resetTickerFilter();
       saveData();

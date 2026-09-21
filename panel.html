@@ -31,7 +31,6 @@
         <div class="flex gap-2"><button id="btnShowEquity" class="tiny-toggle" onclick="setChartMode('equity')">盈利</button><button id="btnShowWR" class="tiny-toggle" onclick="setChartMode('wr')">胜率</button><button id="btnShowBoth" class="tiny-toggle active" onclick="setChartMode('both')">同时</button></div>
         <select id="currencyFilter" class="bg-transparent text-[10px] font-bold text-purple-500 border-none outline-none cursor-pointer" onchange="applyGlobalFilter()"><option value="USD">美元</option><option value="CNY">人民币</option><option value="SGD">新加坡元</option></select>
       </div>
-      <div class="flex items-center gap-1 mb-2"><span class="text-[9px] font-bold text-gray-400">日期</span><input type="date" id="filterStart" class="filter-date" onchange="applyGlobalFilter()"><span class="text-[9px] text-gray-400">~</span><input type="date" id="filterEnd" class="filter-date" onchange="applyGlobalFilter()"><button class="ml-auto text-[9px] text-blue-500 font-bold hover:underline" onclick="clearRangeFilter()">全部</button></div>
       <div class="h-48 w-full relative"><canvas id="equityChart"></canvas></div>
       <div class="grid grid-cols-2 gap-2 mt-4">
         <div class="stat-card"><div class="stat-label">胜率</div><div class="text-base font-black text-blue-500" id="statWR">0%</div></div>
@@ -77,6 +76,10 @@
   </section>
 
   <main class="flex-1 min-h-[500px] bg-gray-100 dark:bg-[#0b1120] flex flex-col lg:overflow-hidden relative">
+    <div class="bg-white dark:bg-[#151e32] border-b border-gray-200 dark:border-slate-700 px-5 py-3 shrink-0">
+      <div class="text-[10px] font-bold text-gray-500 mb-2">全局日期筛选</div>
+      <div class="flex flex-wrap items-center gap-2"><label class="text-[10px] text-gray-500">开始 <input type="date" id="filterStart" class="filter-date" onchange="applyGlobalFilter()"></label><label class="text-[10px] text-gray-500">结束 <input type="date" id="filterEnd" class="filter-date" onchange="applyGlobalFilter()"></label><button class="text-[10px] text-blue-500 font-bold hover:underline" onclick="clearRangeFilter()">清除日期</button></div>
+    </div>
     <div class="h-12 bg-white dark:bg-[#151e32] border-b border-gray-200 dark:border-slate-700 flex justify-between items-center px-5 shadow-sm shrink-0"><div class="flex items-center gap-3"><h3 class="text-xs font-bold text-gray-500">交易记录（<span id="recordCount">0</span>）</h3><input type="date" id="galleryFilterDate" class="hidden"><button onclick="clearDateFilter()" class="text-[10px] text-blue-500 font-bold">显示全部</button><span id="currentFilterDisplay" class="text-[10px] font-bold text-gray-400"></span></div><button onclick="clearAllData()" class="text-[10px] text-red-400">清空</button></div>
     <div id="galleryContainer" class="flex-1 lg:overflow-y-auto p-5 space-y-6"></div>
   </main>
@@ -96,6 +99,6 @@
     <button type="button" class="absolute top-4 right-5 text-white text-4xl leading-none" onclick="closeSnapshotLightbox()" aria-label="关闭大图">×</button>
     <img id="snapshotLightboxImg" class="max-w-full max-h-full object-contain" alt="放大的 TradingView 交易截图" referrerpolicy="no-referrer" onclick="event.stopPropagation()">
   </div>
-  <script src="js/app.js?v=20260921-1" defer></script>
+  <script src="js/app.js?v=20260921-2" defer></script>
 </body>
 </html>
