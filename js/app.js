@@ -29,6 +29,7 @@ let cloudUser = null;
 let cloudWriteChain = Promise.resolve();
 let activeLocalKey = null;
 let activeUpdatedKey = null;
+let activePendingKey = null;
 let chartInstance = null;
 let chartMode = 'both';
 let calDate = new Date();
@@ -89,7 +90,7 @@ function normalizeTrade(t) {
     tradeCategory: t.tradeCategory || inferCategory(pattern),
     tradePattern: pattern || '未记录',
     currency: CURRENCIES[t.currency] ? t.currency : 'USD',
-    pnl: Number.parseFloat(t.pnl) || 0,
+    pnl: Number.isFinite(Number.parseFloat(t.pnl)) ? Number.parseFloat(t.pnl) : 0,
     snapshotId: normalizeSnapshotId(t.snapshotId || (/tradingview\.com\/x\//i.test(t.tvLink || '') ? t.tvLink : '')),
     review: t.review || ''
   };
@@ -98,7 +99,8 @@ function normalizeTrade(t) {
 function userStorageKeys(userId) {
   return {
     data: `tradingJournal_v35_${userId}`,
-    updated: `tradingJournal_v35_${userId}_updated_at`
+    updated: `tradingJournal_v35_${userId}_updated_at`,
+    pending: `tradingJournal_v36_${userId}_pending`
   };
 }
 
@@ -117,6 +119,7 @@ function activateUserStorage(user) {
   const keys = userStorageKeys(user.id);
   activeLocalKey = keys.data;
   activeUpdatedKey = keys.updated;
+  activePendingKey = keys.pending;
   let stored = null;
   try {
     stored = JSON.parse(localStorage.getItem(activeLocalKey) || 'null');
@@ -169,17 +172,26 @@ async function signOut() {
   trades = [];
   activeLocalKey = null;
   activeUpdatedKey = null;
+  activePendingKey = null;
   window.location.href = LOGIN_URL;
 }
 
 async function fetchCloudData() {
   if (!cloudUser || !supabaseClient) return null;
-  const { data, error } = await supabaseClient.from(CLOUD_TABLE)
-    .select('id, trade_date, trade_timestamp, ticker, order_type, trade_category, trade_pattern, pnl, currency, snapshot_id, review, created_at, updated_at')
-    .eq('user_id', cloudUser.id)
-    .order('trade_timestamp', { ascending: false });
-  if (error) throw error;
-  return (data || []).map(rowToTrade);
+  const pageSize = 1000;
+  const rows = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabaseClient.from(CLOUD_TABLE)
+      .select('id, trade_date, trade_timestamp, ticker, order_type, trade_category, trade_pattern, pnl, currency, snapshot_id, review, created_at, updated_at')
+      .eq('user_id', cloudUser.id)
+      .order('trade_timestamp', { ascending: false })
+      .order('id', { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+    rows.push(...(data || []));
+    if (!data || data.length < pageSize) break;
+  }
+  return rows.map(rowToTrade);
 }
 
 function tradeToRow(trade, userId) {
@@ -215,6 +227,47 @@ function rowToTrade(row) {
   });
 }
 
+function readPendingOperations() {
+  if (!activePendingKey) return [];
+  try {
+    const value = JSON.parse(localStorage.getItem(activePendingKey) || '[]');
+    return Array.isArray(value) ? value : [];
+  } catch (_) { return []; }
+}
+
+function writePendingOperations(operations) {
+  if (activePendingKey) localStorage.setItem(activePendingKey, JSON.stringify(operations));
+}
+
+function enqueuePendingOperation(operation) {
+  operation.opId = operation.opId || uuidv4();
+  let operations = readPendingOperations();
+  if (operation.type === 'replace') operations = [operation];
+  else {
+    const lastReplace = operations.map(item => item.type).lastIndexOf('replace');
+    const prefix = lastReplace >= 0 ? operations.slice(0, lastReplace + 1) : [];
+    const tail = (lastReplace >= 0 ? operations.slice(lastReplace + 1) : operations)
+      .filter(item => String(item.id) !== String(operation.id));
+    operations = [...prefix, ...tail, operation];
+  }
+  writePendingOperations(operations);
+}
+
+function applyPendingOperations(dataset, operations) {
+  let merged = dataset.map(normalizeTrade);
+  operations.forEach(operation => {
+    if (operation.type === 'replace') merged = (operation.trades || []).map(normalizeTrade);
+    else if (operation.type === 'delete') merged = merged.filter(trade => trade.id !== String(operation.id));
+    else if (operation.type === 'upsert') {
+      const trade = normalizeTrade(operation.trade);
+      const index = merged.findIndex(item => item.id === trade.id);
+      if (index >= 0) merged[index] = trade;
+      else merged.unshift(trade);
+    }
+  });
+  return merged;
+}
+
 function queueCloudWrite(action, reason = '正在同步……') {
   if (!cloudUser || !supabaseClient) return false;
   const userId = cloudUser.id;
@@ -234,25 +287,26 @@ function queueCloudWrite(action, reason = '正在同步……') {
   return cloudWriteChain;
 }
 
-function upsertCloudTrade(trade, reason = '正在同步交易……') {
-  const snapshot = { ...trade };
-  return queueCloudWrite(userId => supabaseClient.from(CLOUD_TABLE)
-    .upsert(tradeToRow(snapshot, userId), { onConflict: 'user_id,id' }), reason);
-}
-
-function deleteCloudTrade(id) {
-  const tradeId = String(id);
-  return queueCloudWrite(userId => supabaseClient.from(CLOUD_TABLE)
-    .delete().eq('user_id', userId).eq('id', tradeId), '正在从云端删除记录……');
-}
-
-function replaceCloudTrades(dataset, reason = '正在同步全部记录……') {
-  const snapshot = dataset.map(trade => ({ ...trade }));
+function flushPendingOperations(reason = '正在同步……') {
   return queueCloudWrite(async userId => {
-    const { error: deleteError } = await supabaseClient.from(CLOUD_TABLE).delete().eq('user_id', userId);
-    if (deleteError || !snapshot.length) return { error: deleteError };
-    return supabaseClient.from(CLOUD_TABLE)
-      .upsert(snapshot.map(trade => tradeToRow(trade, userId)), { onConflict: 'user_id,id' });
+    const operations = readPendingOperations();
+    for (let index = 0; index < operations.length; index += 1) {
+      const operation = operations[index];
+      let result;
+      if (operation.type === 'upsert') {
+        result = await supabaseClient.from(CLOUD_TABLE)
+          .upsert(tradeToRow(normalizeTrade(operation.trade), userId), { onConflict: 'user_id,id' });
+      } else if (operation.type === 'delete') {
+        result = await supabaseClient.from(CLOUD_TABLE)
+          .delete().eq('user_id', userId).eq('id', String(operation.id));
+      } else if (operation.type === 'replace') {
+        const rows = (operation.trades || []).map(trade => tradeToRow(normalizeTrade(trade), userId));
+        result = await supabaseClient.rpc('replace_user_trades', { p_trades: rows });
+      } else continue;
+      if (result.error) return { error: result.error };
+      writePendingOperations(readPendingOperations().filter(item => item.opId !== operation.opId));
+    }
+    return { error: null };
   }, reason);
 }
 
@@ -261,11 +315,15 @@ async function syncFromCloud() {
   setSyncStatus('正在检查云端数据……');
   try {
     const cloudTrades = await fetchCloudData();
-    trades = cloudTrades;
+    const pending = readPendingOperations();
+    trades = applyPendingOperations(cloudTrades, pending);
     saveLocalData();
     resetTickerFilter();
     applyGlobalFilter();
-    setSyncStatus(cloudTrades.length ? '已载入云端数据' : '暂无云端数据');
+    if (pending.length) {
+      const synced = await flushPendingOperations('正在恢复未完成的同步……');
+      if (!synced) setSyncStatus(`有 ${readPendingOperations().length} 项变更待同步，下次打开时会重试`);
+    } else setSyncStatus(cloudTrades.length ? '已载入云端数据' : '暂无云端数据');
   } catch (error) {
     setSyncStatus(`同步失败：${error.message || '未知错误'}`);
   }
@@ -303,6 +361,7 @@ async function initCloud() {
       trades = [];
       activeLocalKey = null;
       activeUpdatedKey = null;
+      activePendingKey = null;
       if (REQUIRE_AUTH) window.location.replace(LOGIN_URL);
     }
   });
@@ -357,6 +416,11 @@ document.getElementById('tradeForm').addEventListener('submit', async event => {
     review: document.getElementById('review').value.trim()
   };
 
+  if (!trade.dateStr || Number.isNaN(trade.timestamp) || !trade.ticker || !Number.isFinite(trade.pnl)) {
+    setSyncStatus('请检查日期、标的和盈亏是否有效');
+    return;
+  }
+
   if (editId) {
     const index = trades.findIndex(t => t.id === editId);
     if (index >= 0) trades[index] = trade;
@@ -369,8 +433,9 @@ document.getElementById('tradeForm').addEventListener('submit', async event => {
     document.getElementById('review').value = '';
   }
   saveData();
-  const synced = await upsertCloudTrade(trade, editId ? '正在更新云端记录……' : '正在保存到云端……');
-  if (!synced) setSyncStatus('记录已保存在本机，云端同步失败，请稍后重试');
+  enqueuePendingOperation({ type: 'upsert', id: trade.id, trade: { ...trade } });
+  const synced = await flushPendingOperations(editId ? '正在更新云端记录……' : '正在保存到云端……');
+  if (!synced) setSyncStatus('记录已保存在本机待同步，下次打开时会自动重试');
 });
 
 function getFilteredTrades() {
@@ -396,7 +461,7 @@ function applyGlobalFilter() {
   const currencyTrades = filtered.filter(t => t.currency === currency);
   renderStats(currencyTrades, currency);
   renderCalendar(currencyTrades, currency);
-  renderGallery(filtered, document.getElementById('galleryFilterDate').value);
+  renderGallery(currencyTrades, document.getElementById('galleryFilterDate').value);
   refreshTickerFilter();
 }
 
@@ -457,12 +522,15 @@ function renderBreakdownStats(dataset, field, containerId) {
     const wins = group.filter(trade => trade.pnl > 0);
     const losses = group.filter(trade => trade.pnl < 0);
     const winRate = group.length ? wins.length / group.length * 100 : 0;
+    const avgWin = wins.length ? wins.reduce((sum, trade) => sum + trade.pnl, 0) / wins.length : 0;
+    const avgLoss = losses.length ? losses.reduce((sum, trade) => sum + trade.pnl, 0) / losses.length : 0;
     const payoffRatio = calculatePayoffRatio(wins, losses);
-    return `<div class="grid grid-cols-[minmax(0,1fr)_52px_52px] gap-2 items-center text-[10px] py-1.5 border-b border-gray-100 dark:border-slate-700"><span class="truncate font-medium" title="${escapeHtml(name)}">${escapeHtml(name)} <span class="text-gray-400">(${group.length})</span></span><span class="text-right text-blue-500 font-bold">${winRate.toFixed(1)}%</span><span class="text-right text-purple-500 font-bold">${payoffRatio === null ? '—' : payoffRatio.toFixed(2)}</span></div>`;
+    const currency = document.getElementById('currencyFilter').value;
+    return `<div class="grid grid-cols-[minmax(0,1fr)_48px_64px_64px_48px] gap-2 items-center text-[10px] py-1.5 border-b border-gray-100 dark:border-slate-700"><span class="truncate font-medium" title="${escapeHtml(name)}">${escapeHtml(name)} <span class="text-gray-400">(${group.length})</span></span><span class="text-right text-blue-500 font-bold">${winRate.toFixed(1)}%</span><span class="text-right text-green-500 font-mono">${formatMoney(avgWin, currency)}</span><span class="text-right text-red-500 font-mono">${formatMoney(avgLoss, currency)}</span><span class="text-right text-purple-500 font-bold">${payoffRatio === null ? '—' : payoffRatio.toFixed(2)}</span></div>`;
   }).join('');
 
   document.getElementById(containerId).innerHTML = groups.size
-    ? `<div class="grid grid-cols-[minmax(0,1fr)_52px_52px] gap-2 text-[9px] text-gray-400 font-bold pb-1"><span>名称（笔数）</span><span class="text-right">胜率</span><span class="text-right">盈亏比</span></div>${rows}`
+    ? `<div class="grid grid-cols-[minmax(0,1fr)_48px_64px_64px_48px] gap-2 text-[9px] text-gray-400 font-bold pb-1"><span>名称（笔数）</span><span class="text-right">胜率</span><span class="text-right">平均盈利</span><span class="text-right">平均亏损</span><span class="text-right">盈亏比</span></div>${rows}`
     : '<div class="text-[10px] text-gray-400">暂无数据</div>';
 }
 
@@ -627,8 +695,9 @@ function openDetail(id) {
       saveLocalData();
       applyGlobalFilter();
       closeModal();
-      const synced = await deleteCloudTrade(t.id);
-      if (!synced) setSyncStatus('删除已保存在本机，云端同步失败，请稍后重试');
+      enqueuePendingOperation({ type: 'delete', id: t.id });
+      const synced = await flushPendingOperations('正在从云端删除记录……');
+      if (!synced) setSyncStatus('删除已记录为待同步，下次打开时会自动重试');
     }
   };
   document.getElementById('detailModal').classList.remove('hidden');
@@ -692,8 +761,9 @@ async function clearAllData() {
   trades = [];
   saveLocalData();
   applyGlobalFilter();
-  const synced = await replaceCloudTrades([], '正在清空云端记录……');
-  if (!synced) setSyncStatus('清空已保存在本机，云端同步失败，请稍后重试');
+  enqueuePendingOperation({ type: 'replace', trades: [] });
+  const synced = await flushPendingOperations('正在清空云端记录……');
+  if (!synced) setSyncStatus('清空已记录为待同步，下次打开时会自动重试');
 }
 
 function toggleTheme() {
@@ -717,12 +787,25 @@ function importData(input) {
     try {
       const data = JSON.parse(event.target.result);
       if (!Array.isArray(data)) throw new Error('格式错误');
-      trades = data.map(normalizeTrade);
+      data.forEach((trade, index) => {
+        const dateStr = String(trade?.dateStr || '');
+        const parsedDate = new Date(`${dateStr}T12:00:00`);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr) || Number.isNaN(parsedDate.getTime()) || localDateString(parsedDate) !== dateStr) throw new Error(`第 ${index + 1} 条记录日期无效`);
+        if (!String(trade?.ticker || '').trim() || !Number.isFinite(Number.parseFloat(trade?.pnl))) throw new Error(`第 ${index + 1} 条记录的标的或盈亏无效`);
+      });
+      const normalized = data.map(normalizeTrade);
+      const ids = new Set();
+      normalized.forEach((trade, index) => {
+        if (ids.has(trade.id)) throw new Error(`第 ${index + 1} 条记录 ID 重复`);
+        ids.add(trade.id);
+      });
+      trades = normalized;
       resetTickerFilter();
       saveData();
-      const synced = await replaceCloudTrades(trades, '正在恢复云端记录……');
-      if (!synced) throw new Error('云端同步失败');
-      alert(`成功恢复 ${trades.length} 条记录`);
+      enqueuePendingOperation({ type: 'replace', trades: trades.map(trade => ({ ...trade })) });
+      const synced = await flushPendingOperations('正在恢复云端记录……');
+      if (synced) alert(`成功恢复 ${trades.length} 条记录`);
+      else alert(`已在本机恢复 ${trades.length} 条记录，云端暂未同步，下次打开时会自动重试`);
     } catch (error) {
       alert(`恢复失败：${error.message || '请选择正确的 JSON 备份文件'}`);
     } finally {

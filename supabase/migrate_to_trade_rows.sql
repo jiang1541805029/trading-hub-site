@@ -38,7 +38,7 @@ select
   journal.user_id,
   coalesce(nullif(item.value->>'id', ''), md5(journal.user_id::text || item.ordinality::text)),
   case
-    when coalesce(item.value->>'dateStr', '') ~ '^\d{4}-\d{2}-\d{2}$'
+    when pg_input_is_valid(coalesce(item.value->>'dateStr', ''), 'date')
       then (item.value->>'dateStr')::date
     else current_date
   end,
@@ -53,11 +53,21 @@ select
       then item.value->>'orderType'
     else '未记录'
   end,
-  coalesce(nullif(item.value->>'tradeCategory', ''), '趋势交易'),
+  coalesce(
+    nullif(item.value->>'tradeCategory', ''),
+    case
+      when coalesce(item.value->>'tradePattern', item.value->>'strategy', '') in ('双顶/双底', '三推反转', '楔形反转', '高潮反转') then '反转交易'
+      when coalesce(item.value->>'tradePattern', item.value->>'strategy', '') in ('区间高抛低吸', '区间边界反转', '区间内二次入场', '区间假突破') then '区间交易'
+      when coalesce(item.value->>'tradePattern', item.value->>'strategy', '') in ('区间突破', '趋势线突破', '旗形突破', '开盘区间突破') then '突破交易'
+      when coalesce(item.value->>'tradePattern', item.value->>'strategy', '') in ('缺口回补', '缺口延续', '缺口反转') then '缺口交易'
+      when coalesce(item.value->>'tradePattern', item.value->>'strategy', '') in ('高1/低1', '高2/低2', '高3/低3', '均线回踩', '50%回调', '突破后回测') then '趋势交易'
+      else '未分类'
+    end
+  ),
   coalesce(nullif(item.value->>'tradePattern', ''), nullif(item.value->>'strategy', ''), '未记录'),
   case
-    when coalesce(item.value->>'pnl', '') ~ '^-?\d+(\.\d+)?$'
-      then (item.value->>'pnl')::numeric
+    when pg_input_is_valid(trim(coalesce(item.value->>'pnl', '')), 'numeric')
+      then trim(item.value->>'pnl')::numeric
     else 0
   end,
   case
@@ -113,6 +123,45 @@ on public.trades for delete to authenticated
 using (auth.uid() = user_id);
 
 grant select, insert, update, delete on public.trades to authenticated;
+
+-- Atomically replace all rows for the signed-in user. Any invalid row rolls back
+-- both the delete and insert, so imports cannot leave an empty cloud journal.
+create or replace function public.replace_user_trades(p_trades jsonb)
+returns void
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  current_user_id uuid := auth.uid();
+begin
+  if current_user_id is null then
+    raise exception 'Authentication required';
+  end if;
+  if jsonb_typeof(p_trades) is distinct from 'array' then
+    raise exception 'p_trades must be a JSON array';
+  end if;
+
+  delete from public.trades where user_id = current_user_id;
+
+  insert into public.trades (
+    user_id, id, trade_date, trade_timestamp, ticker, order_type,
+    trade_category, trade_pattern, pnl, currency, snapshot_id, review
+  )
+  select
+    current_user_id, x.id, x.trade_date, x.trade_timestamp, x.ticker,
+    x.order_type, x.trade_category, x.trade_pattern, x.pnl, x.currency,
+    x.snapshot_id, coalesce(x.review, '')
+  from jsonb_to_recordset(p_trades) as x(
+    user_id uuid, id text, trade_date date, trade_timestamp bigint,
+    ticker text, order_type text, trade_category text, trade_pattern text,
+    pnl numeric, currency text, snapshot_id text, review text
+  );
+end;
+$$;
+
+revoke all on function public.replace_user_trades(jsonb) from public;
+grant execute on function public.replace_user_trades(jsonb) to authenticated;
 
 commit;
 
